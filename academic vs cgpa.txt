@@ -1,0 +1,132 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+import numpy as np
+
+# --- Configuration ---
+FILE_PATH = "C:\\Users\\User\\Desktop\\new data.xlsx"
+SHEET_NAME = 'Sheet1'
+# The continuous variable we are averaging
+CGPA_COLUMN_EXCEL = "6. CGPA" 
+CGPA_DISPLAY_NAME = "CGPA" 
+# The categorical variable we are grouping by (ASSUMED COLUMN NAME)
+ACADEMIC_YEAR_COLUMN = "4. Academic Year" 
+# ---------------------
+
+def load_and_clean_data(file_path, sheet_name):
+    """Loads the Excel data and cleans the required columns."""
+    print(f"Attempting to load data from: {file_path}")
+    
+    if not os.path.exists(file_path):
+        print(f"Error: File not found at {file_path}. Please check the path.")
+        return None
+
+    try:
+        df = pd.read_excel(file_path, sheet_name)
+    except Exception as e:
+        print(f"Error reading Excel file: {e}")
+        return None
+
+    # Clean column names (strip spaces, convert to lowercase for reliable access)
+    df.columns = df.columns.str.strip().str.lower()
+    
+    cgpa_col_lower = CGPA_COLUMN_EXCEL.lower()
+    academic_year_col_lower = ACADEMIC_YEAR_COLUMN.lower()
+
+    # Standardize CGPA column (to be averaged)
+    try:
+        df[cgpa_col_lower] = pd.to_numeric(df[cgpa_col_lower], errors="coerce")
+    except KeyError:
+        print(f"Error: Could not find CGPA column '{CGPA_COLUMN_EXCEL}' after cleaning names.")
+        return None
+
+    # Check for academic year column
+    if academic_year_col_lower not in df.columns:
+        print(f"Error: Could not find academic year column '{ACADEMIC_YEAR_COLUMN}' in the data.")
+        print(f"Available columns: {list(df.columns)}")
+        return None
+
+    # Drop rows where CGPA or Academic Year is missing
+    df = df.dropna(subset=[cgpa_col_lower, academic_year_col_lower])
+    
+    return df
+
+def create_cgpa_vs_academic_year_plot(df):
+    """
+    Groups data by Academic Year and plots the average CGPA for each group
+    using a Line Plot, sorted alphabetically by category.
+    """
+    if df is None:
+        return
+
+    cgpa_col_lower = CGPA_COLUMN_EXCEL.lower()
+    academic_year_col_lower = ACADEMIC_YEAR_COLUMN.lower()
+    
+    # Clean the academic year column (standard text cleaning)
+    df['cleaned_academic_year'] = df[academic_year_col_lower].astype(str).str.lower().str.strip()
+    
+    # 1. Group by cleaned academic year and calculate the mean CGPA and count
+    average_cgpa_by_year = df.groupby('cleaned_academic_year')[cgpa_col_lower].mean()
+    count_by_year = df.groupby('cleaned_academic_year')[cgpa_col_lower].count()
+    
+    # 2. Sort the data by the category name (index) for a meaningful progression
+    # If years are text (e.g., "First year"), alphabetical sort is a starting point.
+    # If they are numbers, this will sort them numerically.
+    average_cgpa_by_year = average_cgpa_by_year.sort_index()
+    count_by_year = count_by_year.loc[average_cgpa_by_year.index] # Reorder counts to match mean
+
+    if average_cgpa_by_year.empty:
+        print("Error: No valid CGPA data found for plotting after cleaning.")
+        return
+    
+    # 3. Calculate minimum CGPA and its count (Removed the calculation lines)
+
+    # 4. Create the Plot (Line Plot showing average trend)
+    plt.figure(figsize=(12, 7))
+    
+    # Create the line plot
+    plt.plot(average_cgpa_by_year.index, 
+             average_cgpa_by_year.values, 
+             marker='o', 
+             linestyle='-', 
+             linewidth=3, 
+             color='#9467bd', # Purple color for academic year
+             label=f'Average {CGPA_DISPLAY_NAME}')
+
+    # Add labels and title
+    plt.title("Trend of Average CGPA Across Academic Years", fontsize=16, pad=20)
+    plt.xlabel("Academic Year (Category - Sorted)", fontsize=12)
+    plt.ylabel(f"Average {CGPA_DISPLAY_NAME}", fontsize=12) # Use the display name here
+    plt.xticks(rotation=45, ha='right')
+    
+    # Add data labels (Avg CGPA and Count) next to the points
+    for i, (category, avg_cgpa) in enumerate(average_cgpa_by_year.items()):
+        count = count_by_year.iloc[i]
+        plt.text(i, avg_cgpa + 0.05, 
+                 f'{avg_cgpa:.2f} (n={count})', 
+                 ha='center', va='bottom', fontsize=10, color='#9467bd')
+
+    # Use numerical indices for x-axis text placement for stability
+    plt.gca().set_xticks(range(len(average_cgpa_by_year.index)))
+    plt.gca().set_xticklabels(average_cgpa_by_year.index)
+
+    # Add a horizontal line for the overall dataset average
+    overall_avg = df[cgpa_col_lower].mean()
+    plt.axhline(overall_avg, color='red', linestyle='--', linewidth=1.5, alpha=0.7,
+                label=f'Overall Avg {CGPA_DISPLAY_NAME}: {overall_avg:.2f}') # Use the display name here
+    
+    plt.legend(loc='upper right')
+    plt.grid(axis='y', linestyle=':', alpha=0.6)
+    
+    # --- LOWEST CGPA DATA SECTION REMOVED ---
+    
+    # Use the same dynamic Y-axis limits as the previous file
+    plt.ylim(bottom=df[cgpa_col_lower].min() * 0.95, top=df[cgpa_col_lower].max() * 1.1)
+    plt.tight_layout()
+    plt.show()
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    cleaned_df = load_and_clean_data(FILE_PATH, SHEET_NAME)
+    if cleaned_df is not None:
+        create_cgpa_vs_academic_year_plot(cleaned_df)

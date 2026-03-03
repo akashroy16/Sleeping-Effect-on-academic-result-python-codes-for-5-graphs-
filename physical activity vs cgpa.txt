@@ -1,0 +1,143 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+import numpy as np
+
+# --- Configuration ---
+FILE_PATH = "C:\\Users\\User\\Desktop\\new data.xlsx"
+SHEET_NAME = 'Sheet1'
+# The continuous variable we are averaging
+CGPA_COLUMN_EXCEL = "6. CGPA" 
+CGPA_DISPLAY_NAME = "CGPA" 
+# The categorical variable we are grouping by
+ACTIVITY_COLUMN = "23. Physical Activity" 
+# ---------------------
+
+def load_and_clean_data(file_path, sheet_name):
+    """Loads the Excel data and cleans the required columns."""
+    print(f"Attempting to load data from: {file_path}")
+    
+    if not os.path.exists(file_path):
+        print(f"Error: File not found at {file_path}. Please check the path.")
+        return None
+
+    try:
+        df = pd.read_excel(file_path, sheet_name)
+    except Exception as e:
+        print(f"Error reading Excel file: {e}")
+        return None
+
+    # Clean column names (strip spaces, convert to lowercase for reliable access)
+    df.columns = df.columns.str.strip().str.lower()
+    
+    cgpa_col_lower = CGPA_COLUMN_EXCEL.lower()
+    activity_col_lower = ACTIVITY_COLUMN.lower()
+
+    # Standardize CGPA column (to be averaged)
+    try:
+        df[cgpa_col_lower] = pd.to_numeric(df[cgpa_col_lower], errors="coerce")
+    except KeyError:
+        print(f"Error: Could not find CGPA column '{CGPA_COLUMN_EXCEL}' after cleaning names.")
+        return None
+
+    # Check for activity column
+    if activity_col_lower not in df.columns:
+        print(f"Error: Could not find activity column '{ACTIVITY_COLUMN}' in the data.")
+        print(f"Available columns: {list(df.columns)}")
+        return None
+
+    # Drop rows where CGPA or Physical Activity is missing
+    df = df.dropna(subset=[cgpa_col_lower, activity_col_lower])
+    
+    return df
+
+def create_cgpa_vs_activity_plot(df):
+    """
+    Groups data by Physical Activity and plots the average CGPA for each group
+    using a Line Plot, sorted alphabetically by category.
+    """
+    if df is None:
+        return
+
+    cgpa_col_lower = CGPA_COLUMN_EXCEL.lower()
+    activity_col_lower = ACTIVITY_COLUMN.lower()
+    
+    # Clean the physical activity column (standard text cleaning)
+    df['cleaned_activity'] = df[activity_col_lower].astype(str).str.lower().str.strip()
+    
+    # 1. Group by cleaned activity and calculate the mean CGPA and count
+    average_cgpa_by_activity = df.groupby('cleaned_activity')[cgpa_col_lower].mean()
+    count_by_activity = df.groupby('cleaned_activity')[cgpa_col_lower].count()
+    
+    # 2. Sort the data by the category name (index) alphabetically
+    average_cgpa_by_activity = average_cgpa_by_activity.sort_index()
+    count_by_activity = count_by_activity.loc[average_cgpa_by_activity.index] # Reorder counts to match mean
+
+    if average_cgpa_by_activity.empty:
+        print("Error: No valid CGPA data found for plotting after cleaning.")
+        return
+    
+    # 3. Calculate minimum CGPA and its count
+    min_cgpa = df[cgpa_col_lower].min()
+    min_cgpa_count = df[df[cgpa_col_lower] == min_cgpa].shape[0]
+
+    # 4. Create the Plot (Line Plot showing average trend)
+    plt.figure(figsize=(12, 7))
+    
+    # Create the line plot
+    plt.plot(average_cgpa_by_activity.index, 
+             average_cgpa_by_activity.values, 
+             marker='o', 
+             linestyle='-', 
+             linewidth=3, 
+             color='#2ca02c', # Green color for activity
+             label=f'Average {CGPA_DISPLAY_NAME}')
+
+    # Add labels and title
+    plt.title("Trend of Average CGPA Across Physical Activity Categories", fontsize=16, pad=20)
+    plt.xlabel("Reported Physical Activity (Category - Sorted)", fontsize=12)
+    plt.ylabel(f"Average {CGPA_DISPLAY_NAME}", fontsize=12) # Use the display name here
+    plt.xticks(rotation=45, ha='right')
+    
+    # Add data labels (Avg CGPA and Count) next to the points
+    for i, (category, avg_cgpa) in enumerate(average_cgpa_by_activity.items()):
+        count = count_by_activity.iloc[i]
+        plt.text(i, avg_cgpa + 0.05, 
+                 f'{avg_cgpa:.2f} (n={count})', 
+                 ha='center', va='bottom', fontsize=10, color='#2ca02c')
+
+    # Use numerical indices for x-axis text placement for stability
+    plt.gca().set_xticks(range(len(average_cgpa_by_activity.index)))
+    plt.gca().set_xticklabels(average_cgpa_by_activity.index)
+
+    # Add a horizontal line for the overall dataset average
+    overall_avg = df[cgpa_col_lower].mean()
+    plt.axhline(overall_avg, color='red', linestyle='--', linewidth=1.5, alpha=0.7,
+                label=f'Overall Avg {CGPA_DISPLAY_NAME}: {overall_avg:.2f}') # Use the display name here
+    
+    plt.legend(loc='upper right')
+    plt.grid(axis='y', linestyle=':', alpha=0.6)
+    
+    # --- ADD LOWEST CGPA DATA TO TOP RIGHT CORNER ---
+    ax = plt.gca()
+    # We place it at (0.98, 0.8) with right alignment (ha='right') to tuck it under the legend.
+    plt.text(0.98, 0.80, 
+             f'Lowest Individual {CGPA_DISPLAY_NAME}:\n{min_cgpa:.2f} (Count: {min_cgpa_count})', 
+             transform=ax.transAxes,
+             fontsize=10, 
+             color='darkred',
+             ha='right',
+             va='top', 
+             bbox=dict(facecolor='white', alpha=0.8, edgecolor='darkred', boxstyle='round,pad=0.5'))
+    # --- END ADDITION ---
+
+    # Use the same dynamic Y-axis limits as the previous file
+    plt.ylim(bottom=df[cgpa_col_lower].min() * 0.95, top=df[cgpa_col_lower].max() * 1.1)
+    plt.tight_layout()
+    plt.show()
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    cleaned_df = load_and_clean_data(FILE_PATH, SHEET_NAME)
+    if cleaned_df is not None:
+        create_cgpa_vs_activity_plot(cleaned_df)

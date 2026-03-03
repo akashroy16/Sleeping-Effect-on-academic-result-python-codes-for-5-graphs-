@@ -1,0 +1,149 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+import numpy as np
+
+# --- Configuration ---
+FILE_PATH = "C:\\Users\\User\\Desktop\\new data.xlsx"
+SHEET_NAME = 'Sheet1'
+# The continuous variable we are averaging
+CGPA_COLUMN_EXCEL = "6. CGPA" 
+CGPA_DISPLAY_NAME = "CGPA" 
+# The primary categorical variable for X-axis (ASSUMED COLUMN NAME)
+ACADEMIC_YEAR_COLUMN = "4. Academic Year" 
+# The secondary categorical variable for comparison (CORRECTED BASED ON USER INPUT)
+GENDER_COLUMN = "2. Gender" 
+# ---------------------
+
+def load_and_clean_data(file_path, sheet_name):
+    """Loads the Excel data and cleans the required columns."""
+    print(f"Attempting to load data from: {file_path}")
+    
+    if not os.path.exists(file_path):
+        print(f"Error: File not found at {file_path}. Please check the path.")
+        return None
+
+    try:
+        df = pd.read_excel(file_path, sheet_name)
+    except Exception as e:
+        print(f"Error reading Excel file: {e}")
+        return None
+
+    # Clean column names (strip spaces, convert to lowercase for reliable access)
+    df.columns = df.columns.str.strip().str.lower()
+    
+    cgpa_col_lower = CGPA_COLUMN_EXCEL.lower()
+    academic_year_col_lower = ACADEMIC_YEAR_COLUMN.lower()
+    gender_col_lower = GENDER_COLUMN.lower()
+
+    # Standardize columns
+    df[cgpa_col_lower] = pd.to_numeric(df[cgpa_col_lower], errors="coerce")
+
+    # Check for all required columns
+    required_cols = [cgpa_col_lower, academic_year_col_lower, gender_col_lower]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+
+    if missing_cols:
+        print(f"Error: The following required columns are missing: {', '.join(missing_cols)}")
+        print(f"Available columns: {list(df.columns)}")
+        return None
+
+    # Drop rows where any required data is missing
+    df = df.dropna(subset=required_cols)
+    
+    return df
+
+def create_cgpa_vs_gender_plot(df):
+    """
+    Groups data by Academic Year AND Gender and plots two lines (Male vs Female)
+    showing the average CGPA trend.
+    """
+    if df is None:
+        return
+
+    cgpa_col_lower = CGPA_COLUMN_EXCEL.lower()
+    academic_year_col_lower = ACADEMIC_YEAR_COLUMN.lower()
+    gender_col_lower = GENDER_COLUMN.lower()
+    
+    # Standardize categorical columns
+    df['cleaned_academic_year'] = df[academic_year_col_lower].astype(str).str.lower().str.strip()
+    df['cleaned_gender'] = df[gender_col_lower].astype(str).str.lower().str.strip()
+    
+    # 1. Group by Academic Year and Gender, calculate the mean CGPA and count
+    grouped_data = df.groupby(['cleaned_academic_year', 'cleaned_gender'])[cgpa_col_lower].agg(['mean', 'count']).reset_index()
+    
+    # 2. Extract unique academic years and sort them
+    academic_years = grouped_data['cleaned_academic_year'].unique()
+    academic_years.sort()
+    
+    # 3. Pivot the data to get male and female averages in separate columns
+    pivot_table = grouped_data.pivot(index='cleaned_academic_year', columns='cleaned_gender', values='mean')
+    count_table = grouped_data.pivot(index='cleaned_academic_year', columns='cleaned_gender', values='count')
+
+    # Re-sort pivot tables by the correct academic year order
+    pivot_table = pivot_table.reindex(academic_years)
+    count_table = count_table.reindex(academic_years)
+
+    # 4. Identify the two main groups for plotting
+    genders = pivot_table.columns.tolist()
+    if not genders:
+         print("Error: Could not find distinct gender categories after grouping.")
+         return
+
+    # 5. Create the Plot
+    plt.figure(figsize=(14, 8))
+    
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'] # Blue, Orange, Green, Red
+    
+    lines = []
+    
+    for i, gender in enumerate(genders):
+        # Create the line plot for the current gender
+        line, = plt.plot(pivot_table.index, 
+                         pivot_table[gender].values, 
+                         marker='o', 
+                         linestyle='-', 
+                         linewidth=3, 
+                         color=colors[i % len(colors)],
+                         label=f'Avg {CGPA_DISPLAY_NAME} ({gender.capitalize()})')
+        lines.append(line)
+        
+        # Add data labels (Avg CGPA and Count)
+        for j, avg_cgpa in enumerate(pivot_table[gender].values):
+            if pd.notna(avg_cgpa): # Check if there is data for this combination
+                count = count_table.loc[pivot_table.index[j], gender]
+                plt.text(j, avg_cgpa + 0.05 + (0.05 * i), # Slight vertical offset for clarity
+                         f'{avg_cgpa:.2f} (n={count:.0f})', 
+                         ha='center', va='bottom', fontsize=9, color=colors[i % len(colors)])
+
+
+    # Add labels and title
+    plt.title(f"Comparison of Average {CGPA_DISPLAY_NAME} by Academic Year and Gender", fontsize=16, pad=20)
+    plt.xlabel(f"{ACADEMIC_YEAR_COLUMN} (Category - Sorted)", fontsize=12)
+    plt.ylabel(f"Average {CGPA_DISPLAY_NAME}", fontsize=12)
+    
+    # Configure X-axis ticks and labels
+    plt.gca().set_xticks(range(len(academic_years)))
+    plt.gca().set_xticklabels(academic_years, rotation=45, ha='right')
+
+    # Add a horizontal line for the overall dataset average (ignoring gender)
+    overall_avg = df[cgpa_col_lower].mean()
+    plt.axhline(overall_avg, color='red', linestyle='--', linewidth=1.5, alpha=0.7,
+                label=f'Overall Avg {CGPA_DISPLAY_NAME}: {overall_avg:.2f}')
+    
+    plt.legend(loc='upper right')
+    plt.grid(axis='y', linestyle=':', alpha=0.6)
+    
+    # Set dynamic Y-axis limits
+    y_min = df[cgpa_col_lower].min() * 0.95
+    y_max = df[cgpa_col_lower].max() * 1.1
+    plt.ylim(bottom=y_min, top=y_max)
+    
+    plt.tight_layout()
+    plt.show()
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    cleaned_df = load_and_clean_data(FILE_PATH, SHEET_NAME)
+    if cleaned_df is not None:
+        create_cgpa_vs_gender_plot(cleaned_df)

@@ -1,0 +1,184 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+import numpy as np
+
+# --- Configuration ---
+FILE_PATH = r"C:\Users\User\Desktop\new data.xlsx"
+SHEET_NAME = 'Sheet1'
+# This is the actual column name in the Excel sheet
+CGPA_COLUMN_EXCEL = "6. CGPA" 
+# This is the desired display name for the graphs
+CGPA_DISPLAY_NAME = "CGPA" 
+# The full column name for the sleeping hours - UPDATED TO 10. Sleeping hours
+SLEEP_COLUMN = "10. Sleeping hours" 
+# The short name for robust column finding - UPDATED TO 10. Sleeping hours
+SLEEP_SHORT_NAME = "10. Sleeping hours" 
+# New Configuration for Gender Column
+GENDER_COLUMN_EXCEL = "2. Gender"
+GENDER_SHORT_NAME = "2. Gender"
+# ---------------------
+
+def load_and_clean_data(file_path, sheet_name):
+    """Loads the Excel data and cleans the required columns."""
+    print(f"Attempting to load data from: {file_path}")
+    
+    if not os.path.exists(file_path):
+        print(f"Error: File not found at {file_path}. Please check the path.")
+        return None
+
+    try:
+        df = pd.read_excel(file_path, sheet_name)
+    except Exception as e:
+        print(f"Error reading Excel file: {e}")
+        return None
+
+    # Clean column names for robust access
+    df.columns = df.columns.str.strip().str.replace('\n', ' ', regex=False).str.strip()
+    
+    # --- Robust Column Finding ---
+    cgpa_col = df.columns[df.columns.str.contains(CGPA_COLUMN_EXCEL, case=False, regex=False)].tolist()
+    sleep_col = df.columns[df.columns.str.contains(SLEEP_SHORT_NAME, case=False, regex=False)].tolist()
+    gender_col = df.columns[df.columns.str.contains(GENDER_SHORT_NAME, case=False, regex=False)].tolist()
+
+    if not cgpa_col:
+        print(f"Error: CGPA column matching '{CGPA_COLUMN_EXCEL}' not found.")
+        return None
+    if not sleep_col:
+        print(f"Error: Sleeping Hours column matching '{SLEEP_SHORT_NAME}' not found.")
+        print(f"Available columns: {list(df.columns)}") 
+        return None
+    if not gender_col:
+        print(f"Error: Gender column matching '{GENDER_SHORT_NAME}' not found.")
+        return None
+        
+    cgpa_col_name = cgpa_col[0]
+    sleep_col_name = sleep_col[0]
+    gender_col_name = gender_col[0]
+
+    # Standardize CGPA column
+    df[cgpa_col_name] = pd.to_numeric(df[cgpa_col_name], errors="coerce")
+    
+    # Drop rows where CGPA, Sleeping Hours, or Gender is missing
+    df = df.dropna(subset=[cgpa_col_name, sleep_col_name, gender_col_name])
+    
+    # --- Convert Sleep Column to Numeric for Proper Sorting ---
+    df['cleaned_sleep_numeric'] = pd.to_numeric(df[sleep_col_name], errors='coerce')
+    df = df.dropna(subset=['cleaned_sleep_numeric'])
+    df['cleaned_sleep_numeric'] = df['cleaned_sleep_numeric'].round(1) # Round to handle minor precision differences
+    
+    # --- Clean Gender Column ---
+    df['cleaned_gender'] = df[gender_col_name].astype(str).str.upper().str.strip().str[0]
+    
+    return df
+
+def create_cgpa_vs_sleep_plot(df):
+    """
+    Groups data by cleaned numeric Sleeping Hours, calculates average CGPA and 
+    gender counts, and plots the results.
+    """
+    if df is None or df.empty:
+        print("No valid data available for plotting.")
+        return
+
+    # Use the discovered column names
+    cgpa_col_name = df.columns[df.columns.str.contains(CGPA_COLUMN_EXCEL, case=False, regex=False)][0]
+    
+    # 1. Group by the cleaned numeric sleeping hours and calculate the mean CGPA and gender counts
+    grouped_data = df.groupby('cleaned_sleep_numeric').agg(
+        avg_cgpa=(cgpa_col_name, 'mean'),
+        total_count=(cgpa_col_name, 'count'),
+        male_count=('cleaned_gender', lambda x: (x == 'M').sum()),
+        female_count=('cleaned_gender', lambda x: (x == 'F').sum())
+    ).reset_index()
+    
+    # 2. Extract the sorted numeric sleep categories and their CGPA means and counts
+    sleep_categories = grouped_data['cleaned_sleep_numeric'].values
+    average_cgpa_by_sleep = grouped_data['avg_cgpa'].values
+    count_by_sleep = grouped_data['total_count'].values
+    male_counts = grouped_data['male_count'].values
+    female_counts = grouped_data['female_count'].values
+    
+    # 3. Calculate minimum CGPA and its count
+    min_cgpa = df[cgpa_col_name].min()
+    min_cgpa_count = df[df[cgpa_col_name] == min_cgpa].shape[0]
+
+    # 4. Create the Plot (Line Plot showing average trend)
+    plt.figure(figsize=(14, 8))
+    
+    # Create the line plot using the numeric categories for the x-axis
+    plt.plot(sleep_categories, 
+             average_cgpa_by_sleep, 
+             marker='o', 
+             linestyle='-', 
+             linewidth=3, 
+             color='#007acc',
+             label='Average CGPA')
+
+    # Add labels and title
+    plt.title("Trend of Average CGPA Across Reported Sleeping Hours (Segmented by Gender Count)", fontsize=16, pad=20)
+    plt.xlabel("Average Sleeping Hours (Hours/Night)", fontsize=12)
+    plt.ylabel(f"Average {CGPA_DISPLAY_NAME}", fontsize=12)
+    
+    # 5. Set X-axis ticks to match the desired sequence and extend up to 12.0
+    
+    max_sleep_limit = 12.0 
+    data_max_sleep = np.ceil(sleep_categories.max()) if len(sleep_categories) > 0 else 0
+    plot_max = max(data_max_sleep, max_sleep_limit)
+
+    min_sleep = np.floor(sleep_categories.min()) if len(sleep_categories) > 0 else 0
+    
+    all_ticks = np.arange(min_sleep, plot_max + 0.1, 0.5) 
+    
+    plt.gca().set_xticks(all_ticks)
+    plt.gca().set_xticklabels([f'{t:.1f}' for t in all_ticks], rotation=45, ha='right')
+    
+    # Add data labels (Avg CGPA, Total Count, Male Count, and Female Count) next to the points
+    for i, avg_cgpa in enumerate(average_cgpa_by_sleep):
+        total_n = count_by_sleep[i] # Get the total count
+        n_m = male_counts[i]
+        n_f = female_counts[i]
+        
+        # Format the label to be vertical: CGPA on top, then n, M, F counts below
+        label_text = (
+            f'{avg_cgpa:.2f}\n'
+            f'n: {total_n}\n'
+            f'M: {n_m}\n'
+            f'F: {n_f}'
+        )
+        
+        # Increased font size slightly to fit the longer label
+        plt.text(sleep_categories[i], avg_cgpa + 0.05, 
+                 label_text, 
+                 ha='center', va='bottom', fontsize=8, color='#007acc') # Reduced font size back to 8 for multi-line
+
+    # Add a horizontal line for the overall dataset average
+    overall_avg = df[cgpa_col_name].mean()
+    plt.axhline(overall_avg, color='red', linestyle='--', linewidth=1.5, alpha=0.7,
+                 label=f'Overall Avg {CGPA_DISPLAY_NAME}: {overall_avg:.2f}') 
+    
+    plt.legend(loc='upper right')
+    plt.grid(axis='y', linestyle=':', alpha=0.6)
+    
+    # --- ADD LOWEST CGPA DATA TO TOP RIGHT CORNER ---
+    ax = plt.gca()
+    plt.text(0.98, 0.80, 
+             f'Lowest Individual {CGPA_DISPLAY_NAME}:\n{min_cgpa:.2f} (Count: {min_cgpa_count})', 
+             transform=ax.transAxes,
+             fontsize=10, 
+             color='darkred',
+             ha='right',
+             va='top', 
+             bbox=dict(facecolor='white', alpha=0.8, edgecolor='darkred', boxstyle='round,pad=0.5'))
+    # --- END ADDITION ---
+
+    plt.ylim(bottom=df[cgpa_col_name].min() * 0.95, top=df[cgpa_col_name].max() * 1.1)
+    plt.xlim(left=min_sleep - 0.5, right=plot_max + 0.5) # Extend x-limits slightly beyond data/12.0
+    plt.tight_layout()
+    plt.show()
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    cleaned_df = load_and_clean_data(FILE_PATH, SHEET_NAME)
+    if cleaned_df is not None:
+        create_cgpa_vs_sleep_plot(cleaned_df)
